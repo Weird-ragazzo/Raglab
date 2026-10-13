@@ -1,0 +1,1 @@
+To make model responses more repeatable, the researchers set the temperature hyperparameter to its minimum value of zero. They explain that this reduces response randomness and makes outputs more predictable.

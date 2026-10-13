@@ -1,0 +1,1 @@
+Across the study's evaluated language models, hybrid retrieval accuracy was significantly higher than dense and sparse retrieval accuracy. The reported overall correct-document retrieval rates were 83.2 percent for hybrid, 75.2 percent for dense, and 61.8 percent for sparse.

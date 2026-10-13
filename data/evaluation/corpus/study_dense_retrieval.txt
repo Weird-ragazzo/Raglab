@@ -1,0 +1,1 @@
+For dense retrieval, the study used Nomic Embed Text v1.5 through the SentenceTransformers module. Sparse retrieval used BM25, and the hybrid reranker used a cross-encoder identified as ms-marco-MiniLM-L-6-v2.

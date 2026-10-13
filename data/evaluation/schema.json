@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAGLab evaluation question",
+  "type": "object",
+  "required": [
+    "id",
+    "split",
+    "question",
+    "reference_answer",
+    "relevant_evidence_ids",
+    "answerable",
+    "source"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "split": {"enum": ["dev", "heldout"]},
+    "question": {"type": "string", "minLength": 1},
+    "reference_answer": {"type": "string"},
+    "relevant_evidence_ids": {
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    },
+    "answerable": {"type": "boolean"},
+    "source": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"answerable": {"const": false}}},
+      "then": {"properties": {"relevant_evidence_ids": {"maxItems": 0}}}
+    }
+  ],
+  "additionalProperties": false
+}

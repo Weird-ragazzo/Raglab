@@ -1,0 +1,1 @@
+In the reported comparison, dense retrieval selected the correct source document for 75.2 percent of questions. In 85.8 percent of questions, it returned at least one document from the same synopsis as the source.

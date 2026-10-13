@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.streamlit/secrets.toml
+data/uploads/
+data/indexes/
+data/collections/
+data/evaluation/results/
+*.faiss
+*.npy
+*.pkl
+.cache/
+*.log
+

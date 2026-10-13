@@ -1,0 +1,1 @@
+Sparse retrieval uses keyword-based metrics. It can work well when query and document terms overlap, but it can fail when semantically related documents do not share keywords. Dense retrieval embeds documents and queries as vectors so semantically related text can be found through vector similarity.

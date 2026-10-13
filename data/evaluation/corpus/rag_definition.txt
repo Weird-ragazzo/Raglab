@@ -1,0 +1,1 @@
+Retrieval-augmented generation is a technique for identifying relevant information to include in a language model's context. A user query retrieves potentially relevant documents from a corpus; those documents are added to the context along with the query and sent to the language model.
