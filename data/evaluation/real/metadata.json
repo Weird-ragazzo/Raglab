@@ -1,0 +1,37 @@
+{
+  "seed": 20261014,
+  "generator_model": "gemini-3.5-flash-lite",
+  "generator_models_used": [
+    "gemini-3.5-flash-lite"
+  ],
+  "generator_providers_used": [
+    "gemini"
+  ],
+  "created_at": "2026-10-14T10:17:00.557631+00:00",
+  "pdfs": [
+    "Ayush & Aman - BIAS IEEE PAPER.pdf",
+    "esmoopen-2020-000871.pdf",
+    "pone.0312962.pdf",
+    "zjw2214.pdf"
+  ],
+  "per_pdf_requested": 12,
+  "per_pdf_accepted": {
+    "Ayush & Aman - BIAS IEEE PAPER.pdf": 7,
+    "esmoopen-2020-000871.pdf": 9,
+    "pone.0312962.pdf": 9,
+    "zjw2214.pdf": 7
+  },
+  "record_count": 40,
+  "split_counts": {
+    "dev": 24,
+    "heldout": 16
+  },
+  "rejected_counts": {
+    "quote": 8,
+    "duplicate": 0,
+    "trivial": 0,
+    "schema": 0,
+    "cross_document": 0
+  },
+  "dataset_version": "1047b85764b840dc"
+}

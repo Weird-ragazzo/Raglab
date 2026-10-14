@@ -15,6 +15,7 @@ Upload technical PDFs, ask questions across a collection, and inspect the exact 
 - [Install and configure](#install-and-configure)
 - [Use the app](#use-the-app)
 - [Run an evaluation](#run-an-evaluation)
+- [Evaluate your PDFs](#evaluate-your-pdfs)
 - [Run tests](#run-tests)
 - [Deploy to Streamlit Community Cloud](#deploy-to-streamlit-community-cloud)
 - [Privacy and data handling](#privacy-and-data-handling)
@@ -51,14 +52,16 @@ flowchart LR
     Index --> Search
     Search --> Prompt[Question plus retrieved evidence]
     Prompt --> Gemini[Configurable Gemini model]
+    Gemini -->|error or invalid citation| NVIDIA[NVIDIA NIM fallback]
     Gemini --> Check[Parse answer and validate citations]
+    NVIDIA --> Check
     Check --> UI[Answer, page citations, and expandable passages]
 ```
 
 1. **Validate and extract.** RAGLab accepts PDFs, checks the configured size and page limits, and extracts selectable text with PyMuPDF. Empty or scanned PDFs without extractable text receive a clear error. Each nonempty page is recorded with its original filename and one-based page number.
 2. **Chunk and embed.** Each page is split into overlapping character chunks. Chunk boundaries stay within a page so citations keep the source page. MiniLM creates normalized vectors locally on CPU.
 3. **Index and retrieve.** Every collection gets its own in-memory FAISS `IndexFlatIP` index. RAGLab embeds a question and returns the highest-scoring passages by cosine similarity. Collections are isolated from one another.
-4. **Generate and check.** The app sends the question and retrieved passages to the configured Gemini model. The prompt says that PDF content is untrusted data, must not override the instructions, and cannot support an answer unless the evidence does. The response is requested as structured JSON. Citation source, page, and chunk ID must match a retrieved passage.
+4. **Generate and check.** The app sends the question and retrieved passages to Gemini first, then falls back to NVIDIA NIM if Gemini errors or returns an invalid citation. Both receive structured JSON requests. The prompt says PDF content is untrusted data and cannot support an answer unless the evidence does. Citation source, page, and chunk ID must match a retrieved passage.
 5. **Show the evidence.** The UI displays the answer and its source/page citations. An expandable panel shows the retrieved text and similarity score so a reader can check the evidence directly.
 
 ### Evaluation pipeline
@@ -76,6 +79,7 @@ The runner keeps the `dev` split for configuration comparisons and the `heldout`
 | `src/documents.py`                | PDF validation, text extraction, page metadata, and chunking                                    |
 | `src/retrieval.py`                | Cached CPU embedding model, FAISS index, and dense retrieval                                    |
 | `src/generation.py`               | Grounded Gemini generation and citation validation                                              |
+| `src/nvidia.py`                   | NVIDIA NIM JSON chat-completion fallback using the standard library                             |
 | `src/evaluation/metrics.py`       | Deterministic metric functions and reference-answer rubric                                      |
 | `src/evaluation/runner.py`        | Command-line benchmark runner and JSON result writer                                            |
 | `data/evaluation/benchmark.jsonl` | Version-controlled questions, answers, evidence IDs, answerability labels, and source URLs      |
@@ -91,7 +95,7 @@ The runner keeps the `dev` split for configuration comparisons and the `heldout`
 ## Requirements
 
 - Python 3.12 is the recommended and verified development version.
-- A Gemini API key is needed to answer questions. Retrieval and the normal test suite do not need a Gemini API call.
+- A Gemini API key is used first for answers. Set `NVIDIA_API_KEY` to enable NVIDIA NIM fallback when Gemini errors. Retrieval and the test suite do not need live API calls.
 - The first use downloads the MiniLM model weights from Hugging Face. Allow several hundred MB of local model/cache space and network access for that initial download.
 - The pinned PyTorch wheel in `requirements.txt` is the CPU build from the official PyTorch CPU package index and targets Linux. Windows and macOS users may need to install a platform-specific CPU PyTorch build and adjust that pin.
 
@@ -110,20 +114,24 @@ Open `.env` in a local editor and set your key:
 
 ```dotenv
 GEMINI_API_KEY=your_key_here
+NVIDIA_API_KEY=your_nvidia_key_here
 ```
 
-Do not paste the key into source files or commit `.env`. It is excluded by `.gitignore`. The committed `.env.example` contains only a blank `GEMINI_API_KEY=` entry.
+Do not paste keys into source files or commit `.env`. It is excluded by `.gitignore`. Both key entries in `.env.example` are blank.
 
 Optional settings can be exported as environment variables or placed in `.env`:
 
-| Variable          | Default                                  | Purpose                                    |
-| ----------------- | ---------------------------------------- | ------------------------------------------ |
-| `GEMINI_MODEL`    | `gemini-3.5-flash-lite`                  | Gemini model ID used for answer generation |
-| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Sentence Transformers model ID             |
-| `MAX_UPLOAD_MB`   | `25`                                     | Maximum size for each PDF                  |
-| `MAX_PDF_PAGES`   | `500`                                    | Maximum pages in each PDF                  |
-| `CHUNK_SIZE`      | `900`                                    | Default chunk size in characters           |
-| `CHUNK_OVERLAP`   | `150`                                    | Default overlap in characters              |
+| Variable             | Default                                                | Purpose                                            |
+| -------------------- | ------------------------------------------------------ | -------------------------------------------------- |
+| `GEMINI_MODEL`       | `gemini-3.5-flash-lite`                                | Gemini model ID used for answer generation         |
+| `NVIDIA_MODEL`       | `nvidia/nemotron-3-super-120b-a12b`                    | NVIDIA NIM fallback answer model                   |
+| `NVIDIA_JUDGE_MODEL` | `openai/gpt-oss-20b`                                   | Separate NVIDIA model used if Gemini judging fails |
+| `NVIDIA_BASE_URL`    | `https://integrate.api.nvidia.com/v1/chat/completions` | NVIDIA OpenAI-compatible chat endpoint             |
+| `EMBEDDING_MODEL`    | `sentence-transformers/all-MiniLM-L6-v2`               | Sentence Transformers model ID                     |
+| `MAX_UPLOAD_MB`      | `25`                                                   | Maximum size for each PDF                          |
+| `MAX_PDF_PAGES`      | `500`                                                  | Maximum pages in each PDF                          |
+| `CHUNK_SIZE`         | `900`                                                  | Default chunk size in characters                   |
+| `CHUNK_OVERLAP`      | `150`                                                  | Default overlap in characters                      |
 
 Check Google’s [current Gemini model list](https://ai.google.dev/gemini-api/docs/models) before changing `GEMINI_MODEL`. RAGLab uses the `google-genai` SDK.
 
@@ -202,6 +210,28 @@ This makes live Gemini calls and may consume API quota. The test suite mocks gen
 
 See [docs/EVALUATION.md](docs/EVALUATION.md) for the dataset schema, interpretation guidance, and provenance. The starter set is intentionally small; measured values are useful for checking the pipeline, not for broad quality claims.
 
+## Evaluate your PDFs
+
+Place 3-4 text-based research PDFs in `data/evaluation/pdfs/` (scanned PDFs are not supported). Filenames become source IDs. Generate and review a benchmark, compare settings on dev, then evaluate the selected configuration on heldout:
+
+```bash
+.venv/bin/python -m src.evaluation.generate_benchmark --pdf-dir data/evaluation/pdfs --per-pdf 12
+.venv/bin/python -m src.evaluation.real_runner --split dev --compare
+.venv/bin/python -m src.evaluation.real_runner --split heldout --generate --judge
+```
+
+Benchmark generation and `--generate`/`--judge` make live Gemini calls, with NVIDIA NIM as a fallback, and may consume quota from whichever provider serves each request. The generated questions, evidence quotes, and judgments require manual review. Full metric definitions and limitations are in [docs/EVALUATION.md](docs/EVALUATION.md).
+
+Use `--limit N` and `--category factual` for smaller runs. Real-run outputs are written to `data/evaluation/results/real/`; JSON/CSV files are local, while `latest.md` is retained in Git. The Evaluation tab shows run history, metric trends, question-type summaries, configuration comparisons, and per-case evidence.
+
+## Verified results
+
+The benchmark was generated on 2026-10-14 from four local PDFs. It contains 40 quote-verified records: 32 answerable (including 6 cross-document items) and 8 unanswerable, split into 24 dev and 16 heldout. Eight candidate questions were rejected because their quotes could not be verified. Questions are LLM-generated and have not yet received manual review.
+
+The 27-configuration dev sweep covered 20 answerable and 4 unanswerable cases. The selected configuration is chunk size 900, overlap 150, top-K 5: Recall@5 **0.875**, MRR **0.8208**, Precision@5 **0.400**. It tied for the top Recall@5 and balanced the higher precision of top-K 3 against the lower precision of top-K 8. These are measured dev results, not heldout results.
+
+_Heldout generation and judging are still running; heldout results will be added only after the run is saved._
+
 ## Run tests
 
 ```bash
@@ -218,19 +248,20 @@ The tests cover PDF extraction and page metadata, chunking, FAISS ranking and em
 
    ```toml
    GEMINI_API_KEY = "your_key_here"
+   NVIDIA_API_KEY = "your_nvidia_key_here"
    GEMINI_MODEL = "gemini-3.5-flash-lite"
    ```
 
 4. Deploy the app. For an existing deployment, update secrets through its app settings.
 
-Community Cloud installs Python packages from the root `requirements.txt`. RAGLab reads `GEMINI_API_KEY` from Streamlit secrets on the hosted app and from `.env` or the environment locally. See Streamlit’s current [deployment guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy), [dependency guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies), and [secrets guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management).
+Community Cloud installs Python packages from the root `requirements.txt`. RAGLab reads Gemini and NVIDIA keys from Streamlit secrets on the hosted app and from `.env` or the environment locally. See Streamlit’s current [deployment guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy), [dependency guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies), and [secrets guide](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management).
 
 Uploads, conversation state, and FAISS indexes are temporary in-memory data. A session ending or app restart clears them. The app does not use a paid database or hosted vector store. Community Cloud availability and free Gemini quota are not guaranteed.
 
 ## Privacy and data handling
 
 - Uploaded PDFs are parsed and embedded in the app process; RAGLab does not persist uploads or indexes to disk.
-- On each question, the user’s question and retrieved text passages are sent to Gemini for answer generation. Do not upload documents unless you are authorized to send their retrieved content to the configured Gemini API.
+- On each question, the user’s question and retrieved text passages are sent to Gemini first. On Gemini errors, they are sent to NVIDIA NIM as fallback. Do not upload documents unless you are authorized to send retrieved content to those configured services.
 - Document text is passed as evidence and explicitly marked as untrusted in the generation prompt. This reduces prompt-injection risk but cannot guarantee model behavior.
 - `.env`, virtual environments, local caches, uploads, indexes, and generated evaluation result files are ignored by Git.
 

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAGLab real-PDF benchmark record",
+  "type": "object",
+  "required": ["id", "split", "question", "reference_answer", "answerable", "question_type", "cross_document", "evidence_pdf", "evidence_page", "evidence_quote", "evidence", "verified_by"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "split": {"enum": ["dev", "heldout"]},
+    "question": {"type": "string", "minLength": 1},
+    "reference_answer": {"type": "string"},
+    "answerable": {"type": "boolean"},
+    "question_type": {"enum": ["factual", "numeric", "definition", "method", "comparison", "multi_hop"]},
+    "cross_document": {"type": "boolean"},
+    "evidence_pdf": {"type": ["string", "null"]},
+    "evidence_page": {"type": ["integer", "null"], "minimum": 1},
+    "evidence_quote": {"type": ["string", "null"]},
+    "evidence": {"type": "array", "items": {"type": "object", "required": ["pdf", "page", "quote"], "properties": {"pdf": {"type": "string"}, "page": {"type": "integer", "minimum": 1}, "quote": {"type": "string", "minLength": 1}}, "additionalProperties": false}},
+    "verified_by": {"enum": ["auto", "human"]}
+  },
+  "additionalProperties": false
+}

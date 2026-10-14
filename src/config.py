@@ -25,10 +25,28 @@ def _api_key() -> str | None:
         return None
 
 
+def _nvidia_api_key() -> str | None:
+    key = os.getenv("NVIDIA_API_KEY")
+    if key:
+        return key
+    try:
+        import streamlit as st
+
+        return str(st.secrets.get("NVIDIA_API_KEY", "")) or None
+    except Exception:
+        return None
+
+
 @dataclass(frozen=True)
 class Settings:
     gemini_api_key: str | None = field(default_factory=_api_key)
+    nvidia_api_key: str | None = field(default_factory=_nvidia_api_key)
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    nvidia_model: str = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b")
+    nvidia_judge_model: str = os.getenv("NVIDIA_JUDGE_MODEL", "openai/gpt-oss-20b")
+    nvidia_base_url: str = os.getenv(
+        "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1/chat/completions"
+    )
     embedding_model: str = os.getenv(
         "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
     )

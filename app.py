@@ -119,8 +119,8 @@ with tab_chat:
             with st.chat_message("assistant"):
                 if collection["index"].size == 0:
                     st.warning("This collection has no searchable passages.")
-                elif not settings.gemini_api_key:
-                    st.error("Configure GEMINI_API_KEY to generate answers.")
+                elif not settings.gemini_api_key and not settings.nvidia_api_key:
+                    st.error("Configure GEMINI_API_KEY or NVIDIA_API_KEY to generate answers.")
                 else:
                     try:
                         with st.spinner("Searching papers and checking evidence…"):
@@ -143,7 +143,10 @@ with tab_chat:
                             for item in evidence:
                                 st.markdown(f"**{item['source']} · page {item['page']} · score {item['score']:.3f}**")
                                 st.write(item["text"])
-                        st.caption(f"Generation {answer.latency_ms:.0f} ms · {elapsed:.0f} ms total")
+                        st.caption(
+                            f"{answer.provider} · {answer.model_name or 'configured model'} · "
+                            f"Generation {answer.latency_ms:.0f} ms · {elapsed:.0f} ms total"
+                        )
                         st.session_state.messages[active_key].append({
                             "role": "assistant", "content": answer.answer, "evidence": evidence,
                         })
@@ -172,6 +175,145 @@ with tab_eval:
             st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         st.info("No measured results yet. Run the command above to create the first result file.")
+
+    st.divider()
+    st.subheader("Real PDF benchmark")
+    real_dir = Path("data/evaluation/results/real")
+    latest_path = real_dir / "latest.json"
+    history_path = real_dir / "history.csv"
+    if not latest_path.exists():
+        st.info("Add text-based research PDFs to data/evaluation/pdfs, then generate and evaluate a benchmark.")
+        st.code(
+            ".venv/bin/python -m src.evaluation.generate_benchmark --pdf-dir data/evaluation/pdfs --per-pdf 12\n"
+            ".venv/bin/python -m src.evaluation.real_runner --split dev --compare\n"
+            ".venv/bin/python -m src.evaluation.real_runner --split heldout --generate --judge"
+        )
+    else:
+        import csv
+        import json
+
+        latest = json.loads(latest_path.read_text(encoding="utf-8"))
+        real_metrics = latest.get("metrics", {})
+        metric_keys = [
+            ("Recall@5", "recall_at_5", True),
+            ("MRR", "mrr", True),
+            ("Citation validity", "citation_validity", True),
+            ("Abstention accuracy", "abstention_accuracy", True),
+            ("Faithfulness", "judge_faithfulness", False),
+            ("End-to-end p95 latency", "end_to_end_latency_ms_p95", False),
+        ]
+        metric_columns = st.columns(len(metric_keys))
+        for column, (label, key, percentage) in zip(metric_columns, metric_keys):
+            value = real_metrics.get(key)
+            shown = "Not run" if value is None else f"{value:.1%}" if percentage else f"{value:.1f}"
+            column.metric(label, shown)
+        st.caption(
+            f"Latest: {latest.get('run_id', 'unknown')} · {latest.get('dataset', {}).get('split', 'unknown')} · "
+            f"{latest.get('dataset', {}).get('cases', 0)} cases · {latest.get('config', {})}"
+        )
+
+        history_rows = []
+        if history_path.exists():
+            with history_path.open(encoding="utf-8", newline="") as history_file:
+                history_rows = list(csv.DictReader(history_file))
+        if history_rows:
+            st.markdown("**Run history**")
+            st.dataframe(history_rows, use_container_width=True, hide_index=True)
+            score_rows = []
+            latency_rows = []
+            for row in history_rows:
+                score_row = {"run": row.get("run_id", "")}
+                latency_row = {"run": row.get("run_id", "")}
+                for key in ("recall_at_k", "mrr", "citation_validity", "abstention_accuracy", "judge_faithfulness"):
+                    try:
+                        score_row[key] = float(row[key]) if row.get(key) else None
+                    except (TypeError, ValueError):
+                        score_row[key] = None
+                for key in ("retrieval_latency_ms_p95", "end_to_end_latency_ms_p95"):
+                    try:
+                        latency_row[key] = float(row[key]) if row.get(key) else None
+                    except (TypeError, ValueError):
+                        latency_row[key] = None
+                score_rows.append(score_row)
+                latency_rows.append(latency_row)
+            st.markdown("**Quality metrics over runs**")
+            st.line_chart(score_rows, x="run")
+            st.markdown("**p95 latency over runs (ms)**")
+            st.line_chart(latency_rows, x="run")
+        config_runs = []
+        for run_path in sorted(real_dir.glob("*.json"), reverse=True):
+            if run_path.name == "latest.json":
+                continue
+            try:
+                report = json.loads(run_path.read_text(encoding="utf-8"))
+                if report.get("dataset", {}).get("split") == "dev":
+                    config_runs.append({
+                        "Run": report.get("run_id", run_path.stem),
+                        "Configuration": report.get("config", {}).get("name"),
+                        "Chunk size": report.get("config", {}).get("chunk_size"),
+                        "Overlap": report.get("config", {}).get("chunk_overlap"),
+                        "Top K": report.get("config", {}).get("top_k"),
+                        "Recall@K": report.get("metrics", {}).get("recall_at_k"),
+                        "MRR": report.get("metrics", {}).get("mrr"),
+                        "Precision@K": report.get("metrics", {}).get("precision_at_k"),
+                    })
+            except (OSError, ValueError):
+                continue
+        if config_runs:
+            st.markdown("**Dev configuration comparisons**")
+            st.dataframe(config_runs, use_container_width=True, hide_index=True)
+
+        type_breakdown = latest.get("breakdown", {}).get("question_type", {})
+        if type_breakdown:
+            st.markdown("**Recall by question type**")
+            st.bar_chart([{"question_type": name, "recall_at_k": values.get("recall_at_k")}
+                          for name, values in type_breakdown.items()], x="question_type", y="recall_at_k")
+
+        cases = latest.get("cases", [])
+        if cases:
+            st.markdown("**Per-case explorer**")
+            status_filter = st.selectbox("Case status", ["all", "failed", "passed"], key="real_case_status")
+            filtered_cases = [case for case in cases if status_filter == "all"
+                              or status_filter == "passed" and case.get("passed")
+                              or status_filter == "failed" and not case.get("passed")]
+            if filtered_cases:
+                selected_id = st.selectbox(
+                    "Question", range(len(filtered_cases)),
+                    format_func=lambda index: f"{filtered_cases[index]['id']} · {filtered_cases[index]['question'][:100]}",
+                    key="real_case_id",
+                )
+                selected_case = filtered_cases[selected_id]
+                st.write(selected_case["question"])
+                st.caption(f"Type: {selected_case.get('question_type')} · Answerable: {selected_case.get('answerable')} · Passed: {selected_case.get('passed')}")
+                st.markdown("**Expected evidence**")
+                if selected_case.get("evidence"):
+                    for evidence in selected_case["evidence"]:
+                        st.write(f"{evidence['pdf']} · page {evidence['page']}")
+                        st.code(evidence.get("quote", ""))
+                else:
+                    st.write("No evidence; benchmark item is marked unanswerable.")
+                st.markdown("**Reference answer**")
+                st.write(selected_case.get("reference_answer") or "Not applicable")
+                st.markdown("**Retrieved passages**")
+                for passage in selected_case.get("retrieved", []):
+                    with st.expander(f"{passage['pdf']} · page {passage['page']} · score {passage['score']:.3f}"):
+                        st.write(passage["text"])
+                st.markdown("**Generated answer**")
+                st.write(selected_case.get("answer") or "Not generated")
+                if selected_case.get("provider"):
+                    st.caption(f"Generated by {selected_case['provider']} · {selected_case.get('model') or 'unknown model'}")
+                if selected_case.get("error") or selected_case.get("judge_error"):
+                    st.warning(selected_case.get("error") or selected_case.get("judge_error"))
+                if selected_case.get("judge"):
+                    st.markdown("**Judge scores and reasons**")
+                    st.caption(
+                        f"Judged by {selected_case.get('judge_provider', 'unknown')} · "
+                        f"{selected_case.get('judge_model', 'unknown model')}"
+                    )
+                    for dimension in ("faithfulness", "correctness", "relevance"):
+                        st.write(f"{dimension.title()}: {selected_case['judge'][dimension]}/5 · {selected_case['judge'][dimension + '_reason']}")
+            else:
+                st.info("No cases match this status filter.")
 
 with tab_about:
     st.subheader("Small, inspectable RAG")

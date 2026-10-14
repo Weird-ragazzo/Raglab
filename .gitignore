@@ -7,7 +7,11 @@ __pycache__/
 data/uploads/
 data/indexes/
 data/collections/
-data/evaluation/results/
+data/evaluation/results/*
+!data/evaluation/results/real/
+data/evaluation/results/real/*
+!data/evaluation/results/real/latest.md
+data/evaluation/pdfs/*.pdf
 *.faiss
 *.npy
 *.pkl
